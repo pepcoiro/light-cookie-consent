@@ -19,7 +19,7 @@ if (!defined('ABSPATH')) {
    0. CONFIGURAZIONE
    ========================================================================== */
 
-define('CC_VERSION', defined('CC_VERSION') ? CC_VERSION : '3.1.0'); // ultima stabile verificata
+if (!defined('CC_VERSION')) { define('CC_VERSION', '3.1.0'); } // ultima stabile verificata
 
 /**
  * Google Consent Mode v2.
@@ -38,6 +38,8 @@ if (!defined('CC_CM_REGIONS')) { define('CC_CM_REGIONS', []); }
 // SRI opzionale per gli asset CDN (se vuoto, integrity non viene stampato)
 if (!defined('CC_SRI_CSS')) { define('CC_SRI_CSS', ''); }
 if (!defined('CC_SRI_JS'))  { define('CC_SRI_JS', '');  }
+// Dominio condiviso opzionale, ad esempio '.example.com'. Non si indovina il dominio registrabile.
+if (!defined('CC_COOKIE_DOMAIN')) { define('CC_COOKIE_DOMAIN', ''); }
 
 /**
  * Mappa servizio/categoria (in ORDINE: il primo pattern che matcha vince).
@@ -87,22 +89,22 @@ function cc_service_map() {
  */
 function cc_inline_map() {
     return [
-        ['match' => 'googletagmanager', 'cat' => 'analytics', 'service' => 'Google Tag Manager'],
-        ['match' => 'dataLayer.push',   'cat' => 'analytics', 'service' => 'Google Tag Manager'],
-        ['match' => 'gtag(',            'cat' => 'analytics', 'service' => 'Google Analytics'],
-        ['match' => 'ga(',              'cat' => 'analytics', 'service' => 'Google Analytics'],
-        ['match' => 'clarity(',         'cat' => 'analytics', 'service' => 'Microsoft Clarity'],
-        ['match' => '_paq.push',        'cat' => 'analytics', 'service' => 'Matomo'],
-        ['match' => 'plausible(',       'cat' => 'analytics', 'service' => 'Plausible'],
-        ['match' => 'umami.',           'cat' => 'analytics', 'service' => 'Umami'],
-        ['match' => 'fbq(',             'cat' => 'marketing', 'service' => 'Meta Pixel'],
-        ['match' => '_fbq',             'cat' => 'marketing', 'service' => 'Meta Pixel'],
-        ['match' => 'ttq.',             'cat' => 'marketing', 'service' => 'TikTok Pixel'],
-        ['match' => 'snaptr(',          'cat' => 'marketing', 'service' => 'Snapchat Pixel'],
-        ['match' => 'pintrk(',          'cat' => 'marketing', 'service' => 'Pinterest Tag'],
-        ['match' => 'twq(',             'cat' => 'marketing', 'service' => 'Twitter Pixel'],
-        ['match' => 'lintrk(',          'cat' => 'marketing', 'service' => 'LinkedIn Insight Tag'],
-        ['match' => 'hj(',              'cat' => 'marketing', 'service' => 'Hotjar'],
+        ['pattern' => '/googletagmanager/i',        'cat' => 'analytics', 'service' => 'Google Tag Manager'],
+        ['pattern' => '/datalayer\s*\.\s*push/i', 'cat' => 'analytics', 'service' => 'Google Tag Manager'],
+        ['pattern' => '/\bgtag\s*\(/i',           'cat' => 'analytics', 'service' => 'Google Analytics'],
+        ['pattern' => '/\bga\s*\(/i',             'cat' => 'analytics', 'service' => 'Google Analytics'],
+        ['pattern' => '/\bclarity\s*\(/i',        'cat' => 'analytics', 'service' => 'Microsoft Clarity'],
+        ['pattern' => '/\b_paq\s*\.\s*push/i',   'cat' => 'analytics', 'service' => 'Matomo'],
+        ['pattern' => '/\bplausible\s*\(/i',      'cat' => 'analytics', 'service' => 'Plausible'],
+        ['pattern' => '/\bumami\s*\./i',          'cat' => 'analytics', 'service' => 'Umami'],
+        ['pattern' => '/\bfbq\s*\(/i',            'cat' => 'marketing', 'service' => 'Meta Pixel'],
+        ['pattern' => '/\b_fbq\b/i',               'cat' => 'marketing', 'service' => 'Meta Pixel'],
+        ['pattern' => '/\bttq\s*\./i',            'cat' => 'marketing', 'service' => 'TikTok Pixel'],
+        ['pattern' => '/\bsnaptr\s*\(/i',         'cat' => 'marketing', 'service' => 'Snapchat Pixel'],
+        ['pattern' => '/\bpintrk\s*\(/i',         'cat' => 'marketing', 'service' => 'Pinterest Tag'],
+        ['pattern' => '/\btwq\s*\(/i',            'cat' => 'marketing', 'service' => 'Twitter Pixel'],
+        ['pattern' => '/\blintrk\s*\(/i',         'cat' => 'marketing', 'service' => 'LinkedIn Insight Tag'],
+        ['pattern' => '/\bhj\s*\(/i',             'cat' => 'analytics', 'service' => 'Hotjar'],
     ];
 }
 
@@ -111,16 +113,37 @@ function cc_inline_map() {
  */
 function cc_detect($haystack, $map = null) {
     $haystack = strtolower((string) $haystack);
-    if ($haystack === '') {
-        return null;
-    }
+    if ($haystack === '') return null;
     $map = $map ?: cc_service_map();
     foreach ($map as $row) {
-        if (strpos($haystack, $row['match']) !== false) {
-            return ['cat' => $row['cat'], 'service' => $row['service']];
-        }
+        $matched = isset($row['pattern'])
+            ? preg_match($row['pattern'], $haystack) === 1
+            : strpos($haystack, strtolower($row['match'])) !== false;
+        if ($matched) return ['cat' => $row['cat'], 'service' => $row['service']];
     }
     return null;
+}
+
+/** Rileva tutti i servizi presenti in uno snippet inline. */
+function cc_detect_all_inline($haystack) {
+    $haystack = (string) $haystack;
+    if ($haystack === '') return [];
+    $found = [];
+    foreach (cc_inline_map() as $row) {
+        if (preg_match($row['pattern'], $haystack) === 1) {
+            $found[$row['service']] = ['cat' => $row['cat'], 'service' => $row['service']];
+        }
+    }
+    return array_values($found);
+}
+
+/** Consent Mode lascia liberi solo gli snippet composti esclusivamente da servizi Google. */
+function cc_all_google_services($detections) {
+    if (!$detections) return false;
+    foreach ($detections as $detected) {
+        if (!cc_is_consent_mode_service($detected['service'])) return false;
+    }
+    return true;
 }
 
 /**
@@ -212,7 +235,7 @@ function cc_rewrite_inline_scripts($html) {
         return $html;
     }
 
-    return preg_replace_callback(
+    $out = preg_replace_callback(
         '#<script\b([^>]*)>(.*?)</script>#is',
         function ($m) {
             $attrs   = $m[1];
@@ -239,20 +262,29 @@ function cc_rewrite_inline_scripts($html) {
             }
 
             // 2) Script inline
-            $detected = cc_detect($content, cc_inline_map());
-            if (!$detected) return $tag;
+            $detections = cc_detect_all_inline($content);
+            if (!$detections) return $tag;
 
-            if (CC_CONSENT_MODE && cc_is_consent_mode_service($detected['service'])) {
-                return $tag;
-            }
+            // Consent Mode lascia liberi esclusivamente gli snippet con servizi tutti Google.
+            if (CC_CONSENT_MODE && cc_all_google_services($detections)) return $tag;
+
+            $services = array_column($detections, 'service');
+            $categories = array_column($detections, 'cat');
+            // In uno snippet misto prevale la categoria più restrittiva.
+            $category = in_array('marketing', $categories, true) ? 'marketing' : 'analytics';
+            $serviceAttr = count($services) === 1
+                ? ' data-service="' . esc_attr($services[0]) . '"'
+                : '';
 
             $clean = preg_replace('/\stype=(["\'])[^"\']*\1/i', '', $attrs);
-            return '<script type="text/plain" data-category="' . esc_attr($detected['cat'])
-                . '" data-service="' . esc_attr($detected['service']) . '"'
-                . $clean . '>' . $content . '</script>';
+            return '<script type="text/plain" data-category="' . esc_attr($category) . '"'
+                . $serviceAttr . $clean . '>' . $content . '</script>';
         },
         $html
     );
+
+    // Un errore PCRE non deve svuotare la pagina HTML.
+    return $out === null ? $html : $out;
 }
 
 /* ==========================================================================
@@ -367,7 +399,8 @@ document.addEventListener('DOMContentLoaded', function () {
         return;
     }
 
-    var domainRoot = '.' + window.location.hostname.replace(/^www\./, '');
+    var configuredCookieDomain = <?php echo wp_json_encode(CC_COOKIE_DOMAIN); ?>;
+    var domainRoot = configuredCookieDomain || ('.' + window.location.hostname.replace(/^www\./, ''));
 
     // --- Google Consent Mode v2: aggiorna i segnali in base alle scelte ---
     function pushConsentConsentMode() {
@@ -394,6 +427,17 @@ document.addEventListener('DOMContentLoaded', function () {
             necessary: { enabled: true, readOnly: true },
             analytics: {
                 enabled: false,
+                services: {
+                    'Google Tag Manager': { label: 'Google Tag Manager' },
+                    'Google Analytics': { label: 'Google Analytics' },
+                    'Microsoft Clarity': { label: 'Microsoft Clarity' },
+                    'Matomo': { label: 'Matomo' },
+                    'Plausible': { label: 'Plausible' },
+                    'Umami': { label: 'Umami' },
+                    'Hotjar': { label: 'Hotjar' },
+                    'Fathom': { label: 'Fathom' },
+                    'RudderStack': { label: 'RudderStack' }
+                },
                 autoClear: {
                     cookies: [
                         { name: /^_ga/,  path: '/', domain: domainRoot },
@@ -408,12 +452,23 @@ document.addEventListener('DOMContentLoaded', function () {
             },
             marketing: {
                 enabled: false,
+                services: {
+                    'Google Ads': { label: 'Google Ads' },
+                    'Meta Pixel': { label: 'Meta Pixel' },
+                    'Microsoft Ads': { label: 'Microsoft Ads' },
+                    'LinkedIn Insight Tag': { label: 'LinkedIn Insight Tag' },
+                    'TikTok Pixel': { label: 'TikTok Pixel' },
+                    'Pinterest Tag': { label: 'Pinterest Tag' },
+                    'Snapchat Pixel': { label: 'Snapchat Pixel' },
+                    'HubSpot': { label: 'HubSpot' },
+                    'Reddit Pixel': { label: 'Reddit Pixel' },
+                    'Twitter Pixel': { label: 'Twitter Pixel' }
+                },
                 autoClear: {
                     cookies: [
                         { name: /^_fbp/, path: '/', domain: domainRoot },
                         { name: /^_fbc/, path: '/', domain: domainRoot },
                         { name: /^_gcl/, path: '/', domain: domainRoot },
-                        { name: 'IDE',   path: '/', domain: domainRoot },
                         { name: /^_uet/, path: '/', domain: domainRoot },
                         { name: /^_pin_/,path: '/', domain: domainRoot },
                         { name: /^_ttp/, path: '/', domain: domainRoot },
