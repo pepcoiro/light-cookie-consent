@@ -7,6 +7,8 @@ Soluzione leggera per gestire il consenso ai cookie su WordPress, basata su [Coo
 - Banner e pannello preferenze in italiano: accetta tutti, rifiuta i cookie non necessari o personalizza le scelte.
 - Tre categorie: **Necessari**, **Statistiche e analisi**, **Marketing e profilazione**.
 - Rilevamento euristico di alcuni script esterni caricati tramite WordPress e di alcuni script inline presenti nell'HTML.
+- Blocco preventivo degli iframe riconosciuti di YouTube, Vimeo e Google Maps fino al consenso marketing.
+- Rimozione dei pixel di tracciamento riconosciuti nei blocchi `noscript`, dove il browser potrebbe altrimenti inviare richieste anche senza JavaScript.
 - Integrazione con **Google Consent Mode v2**: segnali Google predefiniti su `denied` e aggiornamento dei segnali in base alle preferenze. Con Consent Mode attivo, gli snippet inline riconosciuti come composti esclusivamente da servizi Google non vengono bloccati da questo meccanismo.
 - Cancellazione automatica di una lista di cookie noti quando viene negato o revocato il consenso alla categoria corrispondente.
 - Pulsante flottante per riaprire le preferenze.
@@ -14,9 +16,9 @@ Soluzione leggera per gestire il consenso ai cookie su WordPress, basata su [Coo
 
 ## Limiti
 
-Il riconoscimento degli script si basa su hostname, URL e indicatori noti nel codice: **non rileva automaticamente ogni possibile tracker**. Codice personalizzato, iframe, pixel, caricamenti indiretti, script aggiunti dopo il buffering o strumenti non inclusi nelle regole possono sfuggire al rilevamento.
+Il riconoscimento degli script si basa su hostname, URL e indicatori noti nel codice: **non rileva automaticamente ogni possibile tracker**. Codice personalizzato, iframe di servizi non riconosciuti, pixel non inclusi nelle regole, caricamenti indiretti e script aggiunti dopo il buffering possono sfuggire al rilevamento.
 
-Il blocco riguarda gli script riconosciuti nel filtro degli script WordPress o nell'HTML intercettato dal buffering. Non garantisce, da solo, che nessuna richiesta di tracciamento venga inviata prima del consenso. Cache, minificazione, ordine di caricamento e integrazioni di terze parti possono cambiare il comportamento e vanno testati sul sito reale.
+Il blocco riguarda gli script riconosciuti nel filtro degli script WordPress o nell'HTML intercettato dal buffering. Gli iframe supportati vengono sostituiti con un segnaposto fino al consenso marketing; nei blocchi `noscript` vengono rimossi soltanto i pixel immagine riconosciuti. Non garantisce, da solo, che nessuna richiesta di tracciamento venga inviata prima del consenso. Cache, minificazione, ordine di caricamento e integrazioni di terze parti possono cambiare il comportamento e vanno testati sul sito reale.
 
 La cancellazione dei cookie è limitata ai cookie eliminabili dal browser nel contesto del sito, con dominio e percorso corretti. JavaScript non può cancellare cookie appartenenti a domini estranei. Per condividere la cancellazione tra sottodomini si può configurare `NVCC_COOKIE_DOMAIN` con il dominio principale appropriato.
 
