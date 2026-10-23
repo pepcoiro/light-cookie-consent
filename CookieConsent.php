@@ -493,10 +493,11 @@ function nvcc_cookieconsent_asset_tag($tag, $handle, $src) {
 /* ==========================================================================
    5. BANNER COOKIECONSENT V3 + STILI TEMA NEVE
    ========================================================================== */
-add_action('wp_head', 'nvcc_render_head', 10);
+add_action('wp_head', 'nvcc_render_head', 8);
 function nvcc_render_head() {
-    if (is_admin()) return;
+    if (is_admin() || !wp_script_is('nvcc-cookieconsent', 'enqueued')) return;
 
+    ob_start();
     ?>
 
 
@@ -633,6 +634,11 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 </script>
     <?php
+    $inlineScript = ob_get_clean();
+    $inlineScript = preg_replace('#^\s*<script\b[^>]*>|</script>\s*$#i', '', $inlineScript);
+    if (is_string($inlineScript) && trim($inlineScript) !== '') {
+        wp_add_inline_script('nvcc-cookieconsent', trim($inlineScript), 'after');
+    }
 }
 
 /* ==========================================================================
