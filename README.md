@@ -1,4 +1,4 @@
-# LightweightCookieConsent
+# Light Cookie Consent
 
 Soluzione leggera per gestire il consenso ai cookie su WordPress, basata su [CookieConsent v3](https://github.com/orestbida/cookieconsent). Il progetto usa un file PHP per mostrare il banner, raccogliere le preferenze e applicare regole di blocco preventivo ad alcuni script di terze parti.
 
