@@ -18,7 +18,7 @@ Il riconoscimento degli script si basa su hostname, URL e indicatori noti nel co
 
 Il blocco riguarda gli script riconosciuti nel filtro degli script WordPress o nell'HTML intercettato dal buffering. Non garantisce, da solo, che nessuna richiesta di tracciamento venga inviata prima del consenso. Cache, minificazione, ordine di caricamento e integrazioni di terze parti possono cambiare il comportamento e vanno testati sul sito reale.
 
-La cancellazione dei cookie è limitata ai cookie eliminabili dal browser nel contesto del sito, con dominio e percorso corretti. JavaScript non può cancellare cookie appartenenti a domini estranei. Per condividere la cancellazione tra sottodomini si può configurare `CC_COOKIE_DOMAIN` con il dominio principale appropriato.
+La cancellazione dei cookie è limitata ai cookie eliminabili dal browser nel contesto del sito, con dominio e percorso corretti. JavaScript non può cancellare cookie appartenenti a domini estranei. Per condividere la cancellazione tra sottodomini si può configurare `NVCC_COOKIE_DOMAIN` con il dominio principale appropriato.
 
 Questo progetto è uno strumento tecnico: **non garantisce da solo la conformità al GDPR o ad altre normative**. È necessario verificare i servizi realmente usati dal sito, le finalità del trattamento, l'informativa e il comportamento effettivo delle richieste di rete.
 
@@ -31,17 +31,19 @@ Il file principale è [`CookieConsent.php`](CookieConsent.php).
 3. Assicurati che il codice venga eseguito una sola volta.
 4. Verifica il banner e il pannello preferenze in una finestra anonima; controlla inoltre le richieste di rete prima del consenso, dopo l'accettazione e dopo la revoca.
 
-Il buffering HTML esclude l'area amministrativa WordPress e alcune richieste non frontend. Se usi plugin di cache, minificazione o ottimizzazione, verifica anche la compatibilità con questi strumenti.
+Il buffering HTML esclude l'area amministrativa WordPress, anteprime e alcune richieste non frontend; interviene solo su documenti HTML completi. Sono presenti attributi di esclusione per alcuni strumenti di ottimizzazione, ma la compatibilità va comunque verificata sul sito reale.
 
 ## Configurazione
 
 Le costanti sono definite all'inizio di `CookieConsent.php`:
 
-- `CC_VERSION`: versione di CookieConsent v3 per gli asset CDN (attualmente `3.1.0`).
-- `CC_CONSENT_MODE`: abilita o disabilita Google Consent Mode v2; è attiva per impostazione predefinita.
-- `CC_CM_REGIONS`: codici regione per il segnale di consenso predefinito; un array vuoto applica il default a tutte le regioni.
-- `CC_SRI_CSS` e `CC_SRI_JS`: valori opzionali di Subresource Integrity per gli asset CDN.
-- `CC_COOKIE_DOMAIN`: dominio opzionale per la cancellazione dei cookie condivisi, per esempio `.example.com`. Configuralo solo se conosci il dominio corretto.
+- `NVCC_VERSION`: versione di CookieConsent v3 per gli asset CDN (attualmente `3.1.0`).
+- `NVCC_CONSENT_MODE`: abilita o disabilita Google Consent Mode v2; è attiva per impostazione predefinita.
+- `NVCC_CM_REGIONS`: codici regione per il segnale di consenso predefinito; un array vuoto applica il default a tutte le regioni.
+- `NVCC_SRI_CSS` e `NVCC_SRI_JS`: valori opzionali di Subresource Integrity per gli asset CDN.
+- `NVCC_COOKIE_DOMAIN`: dominio opzionale per la cancellazione dei cookie condivisi, per esempio `.example.com`. Configuralo solo se conosci il dominio corretto.
+
+Le stringhe del banner possono essere personalizzate tramite i filtri WordPress `nvcc_language` e `nvcc_consent_description`.
 
 Gli asset vengono cercati prima in `cookieconsent/` nel tema child e poi nel tema parent; se non vengono trovati, si usa jsDelivr.
 
