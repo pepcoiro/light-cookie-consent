@@ -198,7 +198,7 @@ function nvcc_consent_mode_default() {
   });
   // Ripristina subito il consenso salvato, prima che GTM/gtag invii la prima pageview.
   try {
-    var match = document.cookie.match(/(?:^|;\\s*)cc_cookie=([^;]*)/);
+    var match = document.cookie.match(/(?:^|;\s*)cc_cookie=([^;]*)/);
     if (match) {
       var saved = JSON.parse(decodeURIComponent(match[1]));
       var levels = Array.isArray(saved.level) ? saved.level : (Array.isArray(saved.categories) ? saved.categories : []);
