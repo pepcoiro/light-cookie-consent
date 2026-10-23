@@ -320,24 +320,24 @@ function nvcc_rewrite_inline_scripts($html) {
 /** Blocca iframe noti fino al consenso marketing: CookieConsent v3 non gestisce iframe nativamente. */
 function nvcc_block_known_iframes($html) {
     $result = preg_replace_callback(
-        '#<iframe\\b([^>]*)>(.*?)</iframe>#is',
+        '#<iframe\b([^>]*)>(.*?)</iframe>#is',
         function ($m) {
             $attrs = $m[1];
             $body  = $m[2];
             if (stripos($attrs, 'data-nvcc-src=') !== false) return $m[0];
-            if (!preg_match('/\\bsrc\\s*=\\s*(["\\\'])(.*?)\\1/i', $attrs, $src)) return $m[0];
+            if (!preg_match('/\bsrc\s*=\s*(["\'])(.*?)\1/i', $attrs, $src)) return $m[0];
 
             $url = html_entity_decode($src[2], ENT_QUOTES, 'UTF-8');
             $host = strtolower((string) parse_url($url, PHP_URL_HOST));
             if (!$host) return $m[0];
 
-            $isVideo = preg_match('/(^|\\.)(youtube\\.com|youtube-nocookie\\.com|youtu\\.be|vimeo\\.com)$/i', $host) === 1;
-            $isMaps = preg_match('/(^|\\.)(google\\.com|google\\.[a-z.]+|googleusercontent\\.com)$/i', $host) === 1
+            $isVideo = preg_match('/(^|\.)(youtube\.com|youtube-nocookie\.com|youtu\.be|vimeo\.com)$/i', $host) === 1;
+            $isMaps = preg_match('/(^|\.)(google\.com|google\.[a-z.]+|googleusercontent\.com)$/i', $host) === 1
                 && (stripos($url, '/maps') !== false || stripos($url, 'maps/embed') !== false);
             if (!$isVideo && !$isMaps) return $m[0];
 
             $safeUrl = esc_attr($url);
-            $cleanAttrs = preg_replace('/\\s+src\\s*=\\s*(["\\\'])(.*?)\\1/i', '', $attrs);
+            $cleanAttrs = preg_replace('/\s+src\s*=\s*(["\'])(.*?)\1/i', '', $attrs);
             $iframe = '<iframe' . $cleanAttrs . ' src="about:blank" data-nvcc-src="' . $safeUrl . '" data-nvcc-embed="1" aria-label="Contenuto esterno bloccato in attesa del consenso">' . $body . '</iframe>';
             return '<div class="nvcc-embed-container" data-nvcc-container="1"><div class="nvcc-embed-placeholder">Per visualizzare questo contenuto esterno, accetta i cookie di marketing. <button type="button" data-cc="show-preferencesModal">Gestisci preferenze</button></div>' . $iframe . '</div>';
         },
@@ -348,14 +348,14 @@ function nvcc_block_known_iframes($html) {
 
 /** Elimina pixel di tracciamento riconosciuti dentro noscript, anche se JavaScript è disattivato. */
 function nvcc_block_noscript_pixels($html) {
-    $trackers = '(?:connect\\.facebook\\.net|facebook\\.com/tr|google-analytics\\.com|googletagmanager\\.com|googleadservices\\.com|doubleclick\\.net|googlesyndication\\.com|clarity\\.ms|hotjar\\.com|analytics\\.tiktok\\.com|tiktok\\.com|snap\\.licdn\\.com|linkedin\\.com|ct\\.pinterest\\.com|pinterest\\.com|sc-static\\.net|reddit\\.com|bat\\.bing\\.com)';
+    $trackers = '(?:connect\.facebook\.net|facebook\.com/tr|google-analytics\.com|googletagmanager\.com|googleadservices\.com|doubleclick\.net|googlesyndication\.com|clarity\.ms|hotjar\.com|analytics\.tiktok\.com|tiktok\.com|snap\.licdn\.com|linkedin\.com|ct\.pinterest\.com|pinterest\.com|sc-static\.net|reddit\.com|bat\.bing\.com)';
     $result = preg_replace_callback(
-        '#<noscript\\b[^>]*>(.*?)</noscript>#is',
+        '#<noscript\b[^>]*>(.*?)</noscript>#is',
         function ($m) use ($trackers) {
             $content = preg_replace_callback(
-                '#<img\\b[^>]*>#is',
+                '#<img\b[^>]*>#is',
                 function ($img) use ($trackers) {
-                    return preg_match('/\\bsrc\\s*=\\s*(["\\\'])[^"\\\']*(?:' . $trackers . ')[^"\\\']*\\1/i', $img[0])
+                    return preg_match('/\bsrc\s*=\s*(["\'])[^"\']*(?:' . $trackers . ')[^"\']*\1/i', $img[0])
                         ? ''
                         : $img[0];
                 },
