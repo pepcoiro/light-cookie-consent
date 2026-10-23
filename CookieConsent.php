@@ -257,7 +257,7 @@ function nvcc_start_output_buffer() {
 }
 
 function nvcc_rewrite_inline_scripts($html) {
-    if (!is_string($html) || stripos($html, '</head>') === false || stripos($html, '<html') === false || stripos($html, '<script') === false) {
+    if (!is_string($html) || stripos($html, '</head>') === false || stripos($html, '<html') === false) {
         return $html;
     }
 
