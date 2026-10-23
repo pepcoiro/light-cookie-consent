@@ -425,7 +425,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     var configuredCookieDomain = <?php echo wp_json_encode(NVCC_COOKIE_DOMAIN); ?>;
-    var domainRoot = configuredCookieDomain || ('.' + window.location.hostname.replace(/^www\./, ''));
+    var domainRoot = configuredCookieDomain || window.location.hostname.replace(/^www\./, '');
 
     // --- Google Consent Mode v2: aggiorna i segnali in base alle scelte ---
     function pushConsentConsentMode() {
