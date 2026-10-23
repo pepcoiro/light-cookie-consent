@@ -12,7 +12,7 @@ Soluzione leggera per gestire il consenso ai cookie su WordPress, basata su [Coo
 - Integrazione con **Google Consent Mode v2**: segnali Google predefiniti su `denied` e aggiornamento dei segnali in base alle preferenze. Con Consent Mode attivo, gli snippet inline riconosciuti come composti esclusivamente da servizi Google non vengono bloccati da questo meccanismo.
 - Cancellazione automatica di una lista di cookie noti quando viene negato o revocato il consenso alla categoria corrispondente.
 - Pulsante flottante per riaprire le preferenze.
-- Caricamento di CookieConsent da file locali, se disponibili, con fallback alla CDN jsDelivr.
+- Caricamento di CookieConsent da file locali, se disponibili, con fallback alla CDN jsDelivr; CSS e libreria sono registrati tramite le API enqueue di WordPress, con CSS personalizzato aggiunto via `wp_add_inline_style()` e configurazione JavaScript via `wp_add_inline_script()`.
 
 ## Limiti
 
