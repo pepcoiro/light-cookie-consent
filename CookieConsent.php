@@ -1,32 +1,51 @@
-<?php
 /**
- * Plugin Name: Lightweight Cookie Consent & Script Blocker
- * Description: Banner di consenso cookie leggero con CookieConsent v3 e blocco preventivo degli script.
- * Version: 1.0.0
- * Author: pepcoiro
+ * Cookie Consent (CookieConsent v3) per WordPress — versione completa
+ * Tema: Neve
+ *
+ * Integra:
+ *  - Blocco script enqueued (script_loader_tag) + inline/hardcoded (output buffering)
+ *  - Google Consent Mode v2 (default "denied" + update sui consensi)
+ *  - data-service → toggle per singolo servizio nel pannello preferenze
+ *  - Banner CookieConsent v3 localizzato (it) + pulsante flottante accessibile
+ *  - Guardia se la libreria non è caricata
+ *  - Asset local-preferred con fallback CDN + SRI opzionale
+ *  - Pinnato alla v3.1.0
  */
-
 if (!defined('ABSPATH')) {
     exit; // Evita l'accesso diretto
 }
 
 /* ==========================================================================
-   0. CONFIGURAZIONE & COSTANTI
+   0. CONFIGURAZIONE
    ========================================================================== */
 
-if (!defined('CC_VERSION'))      { define('CC_VERSION', '3.1.0'); }
-if (!defined('CC_CONSENT_MODE')) { define('CC_CONSENT_MODE', true); }
-if (!defined('CC_CM_REGIONS'))   { define('CC_CM_REGIONS', []); }
-if (!defined('CC_SRI_CSS'))      { define('CC_SRI_CSS', ''); }
-if (!defined('CC_SRI_JS'))       { define('CC_SRI_JS', '');  }
-if (!defined('CC_DEBUG'))        { define('CC_DEBUG', true); }
+define('CC_VERSION', defined('CC_VERSION') ? CC_VERSION : '3.1.0'); // ultima stabile verificata
 
 /**
- * Mappa dei servizi esterni da identificare negli script in coda/inline.
+ * Google Consent Mode v2.
+ * true  → i servizi Google (GTM / GA4 / Google Ads) NON vengono bloccati: caricano
+ *         in modalità "cookieless" e ricevono i segnali di consenso via gtag().
+ * false → anche i Google vengono bloccati con type="text/plain".
+ */
+if (!defined('CC_CONSENT_MODE')) { define('CC_CONSENT_MODE', true); }
+
+/**
+ * Regioni a cui applicare il default "denied" (ISO 3166-2, es. ['IT','DE','FR','ES']).
+ * Array vuoto = "denied" in tutto il mondo (scelta più prudente per il GDPR).
+ */
+if (!defined('CC_CM_REGIONS')) { define('CC_CM_REGIONS', []); }
+
+// SRI opzionale per gli asset CDN (se vuoto, integrity non viene stampato)
+if (!defined('CC_SRI_CSS')) { define('CC_SRI_CSS', ''); }
+if (!defined('CC_SRI_JS'))  { define('CC_SRI_JS', '');  }
+
+/**
+ * Mappa servizio/categoria (in ORDINE: il primo pattern che matcha vince).
+ * Uso hostname/percorsi reali degli script per ridurre i falsi positivi.
  */
 function cc_service_map() {
     return [
-        // ---- Google ----
+        // ---- Google (i pattern più specifici prima) ----
         ['match' => 'gtm.js',               'cat' => 'analytics', 'service' => 'Google Tag Manager'],
         ['match' => 'gtag/js',              'cat' => 'analytics', 'service' => 'Google Analytics'],
         ['match' => 'googletagmanager',     'cat' => 'analytics', 'service' => 'Google Tag Manager'],
@@ -64,7 +83,7 @@ function cc_service_map() {
 }
 
 /**
- * Mappa dei pattern per script inline.
+ * Marker per script INLINE (più stretti, con servizio associato).
  */
 function cc_inline_map() {
     return [
@@ -87,9 +106,14 @@ function cc_inline_map() {
     ];
 }
 
+/**
+ * Rileva categoria + servizio. Restituisce ['cat'=>..., 'service'=>...] oppure null.
+ */
 function cc_detect($haystack, $map = null) {
     $haystack = strtolower((string) $haystack);
-    if ($haystack === '') return null;
+    if ($haystack === '') {
+        return null;
+    }
     $map = $map ?: cc_service_map();
     foreach ($map as $row) {
         if (strpos($haystack, $row['match']) !== false) {
@@ -99,12 +123,18 @@ function cc_detect($haystack, $map = null) {
     return null;
 }
 
+/**
+ * I servizi Google sono gestiti da Consent Mode: in quel caso non li blocchiamo.
+ */
 function cc_is_consent_mode_service($service) {
     return in_array($service, ['Google Tag Manager', 'Google Analytics', 'Google Ads'], true);
 }
 
+/**
+ * Trasforma un <script> in uno gestito da CookieConsent.
+ */
 function cc_to_managed_tag($tag, $cat, $service) {
-    $tag = preg_replace('/\stype=(["'])[^'"]*\1/i', '', $tag);
+    $tag = preg_replace('/\stype=(["\'])[^"\']*\1/i', '', $tag);
     $attrs = 'type="text/plain" data-category="' . esc_attr($cat) . '"';
     if ($service) {
         $attrs .= ' data-service="' . esc_attr($service) . '"';
@@ -113,37 +143,15 @@ function cc_to_managed_tag($tag, $cat, $service) {
 }
 
 /* ==========================================================================
-   1. DEBUGGER (raccolta dati)
-   ========================================================================== */
-function cc_debug_enabled() {
-    return CC_DEBUG && !is_admin() && is_user_logged_in() && current_user_can('manage_options');
-}
-
-function cc_debug_add($entry) {
-    if (!cc_debug_enabled()) return;
-    global $cc_debug_log;
-    if (!is_array($cc_debug_log)) { $cc_debug_log = []; }
-    $cc_debug_log[] = $entry;
-}
-
-function cc_debug_short($url, $max = 64) {
-    $s = (string) $url;
-    if ($s === '') return '';
-    $p = wp_parse_url($s);
-    if (!empty($p['path'])) {
-        $s = ltrim($p['path'], '/');
-        if (!empty($p['query'])) { $s .= '?' . $p['query']; }
-    }
-    if (strlen($s) > $max) { $s = '…' . substr($s, -$max); }
-    return $s;
-}
-
-/* ==========================================================================
-   2. GOOGLE CONSENT MODE v2 — Default "Denied"
+   2. GOOGLE CONSENT MODE v2 — default "denied" (il più presto possibile)
+   --------------------------------------------------------------------------
+   Deve girare PRIMA di GTM/gtag. Se il container è hardcoded prima di wp_head,
+   copia questo blocco a mano in cima al <head> del tema.
    ========================================================================== */
 add_action('wp_head', 'cc_consent_mode_default', 1);
 function cc_consent_mode_default() {
     if (is_admin() || !CC_CONSENT_MODE) return;
+
     $region = CC_CM_REGIONS;
     ?>
 <script data-cc-skip>
@@ -157,8 +165,7 @@ function cc_consent_mode_default() {
     'functionality_storage': 'granted',
     'security_storage': 'granted',
     'wait_for_update': 500<?php if (!empty($region)) {
-        echo ",
-    'region': " . wp_json_encode(array_values($region));
+        echo ",\n    'region': " . wp_json_encode(array_values($region));
     } ?>
   });
   gtag('set', 'ads_data_redaction', true);
@@ -173,37 +180,21 @@ function cc_consent_mode_default() {
 add_filter('script_loader_tag', 'cc_block_enqueued_scripts', 99, 3);
 function cc_block_enqueued_scripts($tag, $handle, $src) {
     if (is_admin()) return $tag;
-    if (strpos($tag, 'data-category=') !== false) return $tag;
+    if (strpos($tag, 'data-category=') !== false) return $tag; // già gestito
 
     $detected = cc_detect($handle . ' ' . $src);
     if (!$detected) return $tag;
 
+    // Con Consent Mode attivo, i servizi Google caricano in "cookieless".
     if (CC_CONSENT_MODE && cc_is_consent_mode_service($detected['service'])) {
-        cc_debug_add([
-            'source'  => 'enqueued',
-            'label'   => (string) $handle,
-            'src'     => cc_debug_short($src),
-            'cat'     => $detected['cat'],
-            'service' => $detected['service'],
-            'action'  => 'consent-mode',
-        ]);
         return $tag;
     }
-
-    cc_debug_add([
-        'source'  => 'enqueued',
-        'label'   => (string) $handle,
-        'src'     => cc_debug_short($src),
-        'cat'     => $detected['cat'],
-        'service' => $detected['service'],
-        'action'  => 'blocked',
-    ]);
 
     return cc_to_managed_tag($tag, $detected['cat'], $detected['service']);
 }
 
 /* ==========================================================================
-   3b. BLOCCO SCRIPT INLINE / HARDCODED (Output Buffering)
+   3b. BLOCCO SCRIPT INLINE / HARDCODED (output buffering)
    ========================================================================== */
 add_action('template_redirect', 'cc_start_output_buffer');
 function cc_start_output_buffer() {
@@ -212,6 +203,7 @@ function cc_start_output_buffer() {
         || (defined('DOING_CRON') && DOING_CRON)) {
         return;
     }
+    // NB: verifica eventuali conflitti con plugin di cache/minify che lavorano sull'output.
     ob_start('cc_rewrite_inline_scripts');
 }
 
@@ -228,38 +220,33 @@ function cc_rewrite_inline_scripts($html) {
             $tag     = $m[0];
             $lower   = strtolower($attrs . ' ' . $content);
 
+            // Salta script già gestiti, la libreria di consenso e i nostri script
             if (strpos($lower, 'data-category=') !== false) return $tag;
             if (strpos($lower, 'cookieconsent') !== false)   return $tag;
             if (strpos($lower, 'cc-main') !== false)         return $tag;
-            if (strpos($lower, 'data-cc-skip') !== false) {
-                cc_debug_add(['source' => 'inline', 'label' => '(script CC)', 'src' => '', 'cat' => '', 'service' => '', 'action' => 'skipped']);
-                return $tag;
-            }
+            if (strpos($lower, 'data-cc-skip') !== false) return $tag;
 
-            if (preg_match('/\bsrc\s*=\s*(["'])(.*?)\1/i', $attrs, $src)) {
+            // 1) Script con src
+            if (preg_match('/\bsrc\s*=\s*(["\'])(.*?)\1/i', $attrs, $src)) {
                 $detected = cc_detect($attrs . ' ' . $src[2]);
                 if (!$detected) return $tag;
 
                 if (CC_CONSENT_MODE && cc_is_consent_mode_service($detected['service'])) {
-                    cc_debug_add(['source' => 'inline-src', 'label' => cc_debug_short($src[2]), 'src' => cc_debug_short($src[2]), 'cat' => $detected['cat'], 'service' => $detected['service'], 'action' => 'consent-mode']);
                     return $tag;
                 }
 
-                cc_debug_add(['source' => 'inline-src', 'label' => cc_debug_short($src[2]), 'src' => cc_debug_short($src[2]), 'cat' => $detected['cat'], 'service' => $detected['service'], 'action' => 'blocked']);
                 return cc_to_managed_tag($tag, $detected['cat'], $detected['service']);
             }
 
+            // 2) Script inline
             $detected = cc_detect($content, cc_inline_map());
             if (!$detected) return $tag;
 
             if (CC_CONSENT_MODE && cc_is_consent_mode_service($detected['service'])) {
-                cc_debug_add(['source' => 'inline', 'label' => '(inline ' . $detected['service'] . ')', 'src' => '', 'cat' => $detected['cat'], 'service' => $detected['service'], 'action' => 'consent-mode']);
                 return $tag;
             }
 
-            cc_debug_add(['source' => 'inline', 'label' => '(inline ' . $detected['service'] . ')', 'src' => '', 'cat' => $detected['cat'], 'service' => $detected['service'], 'action' => 'blocked']);
-
-            $clean = preg_replace('/\stype=(["'])[^'"]*\1/i', '', $attrs);
+            $clean = preg_replace('/\stype=(["\'])[^"\']*\1/i', '', $attrs);
             return '<script type="text/plain" data-category="' . esc_attr($detected['cat'])
                 . '" data-service="' . esc_attr($detected['service']) . '"'
                 . $clean . '>' . $content . '</script>';
@@ -269,7 +256,7 @@ function cc_rewrite_inline_scripts($html) {
 }
 
 /* ==========================================================================
-   4. RISOLUZIONE ASSET (Locale con fallback CDN)
+   4. RISOLUZIONE ASSET (locale preferito, fallback CDN)
    ========================================================================== */
 function cc_asset($file) {
     $rel    = 'cookieconsent/' . $file;
@@ -291,7 +278,7 @@ function cc_asset($file) {
 }
 
 /* ==========================================================================
-   5. BANNER COOKIECONSENT V3 + STILI GENERICI SYSTEM-FONT
+   5. BANNER COOKIECONSENT V3 + STILI TEMA NEVE
    ========================================================================== */
 add_action('wp_head', 'cc_render_head', 10);
 function cc_render_head() {
@@ -306,28 +293,27 @@ function cc_render_head() {
     echo $js['integrity'] ? ' integrity="' . esc_attr($js['integrity']) . '" crossorigin="anonymous"' : ''; ?>></script>
 
 <style>
-  /* ---- Colori Banner: palette neutra e moderna ---- */
+  /* ---- Colori banner: variabili tema Neve (con fallback) ---- */
   #cc-main {
-    --cc-bg: #ffffff !important;
-    --cc-modal-bg: #ffffff !important;
-    --cc-primary-color: #1e293b !important;
-    --cc-secondary-color: #64748b !important;
-    --cc-btn-primary-bg: #2563eb !important;
+    --cc-bg: var(--nv-site-bg, #ffffff) !important;
+    --cc-modal-bg: var(--nv-site-bg, #ffffff) !important;
+    --cc-primary-color: var(--nv-primary-accent, #222222) !important;
+    --cc-secondary-color: var(--nv-text-color, #555555) !important;
+    --cc-btn-primary-bg: var(--nv-primary-accent, #0366d6) !important;
     --cc-btn-primary-color: #ffffff !important;
-    --cc-btn-primary-hover-bg: #1d4ed8 !important;
+    --cc-btn-primary-hover-bg: var(--nv-secondary-accent, #000000) !important;
     --cc-btn-primary-hover-color: #ffffff !important;
-    --cc-btn-secondary-bg: #f1f5f9 !important;
-    --cc-btn-secondary-color: #334155 !important;
-    --cc-btn-secondary-hover-bg: #e2e8f0 !important;
-    --cc-btn-secondary-hover-color: #0f172a !important;
-    --cc-toggle-on-bg: #2563eb !important;
-    --cc-separator-border-color: #f1f5f9 !important;
-    --cc-cookie-category-block-bg: #f8fafc !important;
-    --cc-cookie-category-block-hover-bg: #f1f5f9 !important;
-    --cc-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", sans-serif !important;
+    --cc-btn-secondary-bg: var(--nv-light-bg, #f4f4f4) !important;
+    --cc-btn-secondary-color: #222222 !important;
+    --cc-btn-secondary-hover-bg: var(--nv-primary-accent, #0366d6) !important;
+    --cc-btn-secondary-hover-color: #ffffff !important;
+    --cc-toggle-on-bg: var(--nv-primary-accent, #0366d6) !important;
+    --cc-separator-border-color: var(--nv-light-bg, #e5e5e5) !important;
+    --cc-cookie-category-block-bg: var(--nv-light-bg, #f9f9f9) !important;
+    --cc-cookie-category-block-hover-bg: var(--nv-light-bg, #f0f0f0) !important;
   }
 
-  /* ---- Pulsante Flottante (basso-destra) ---- */
+  /* ---- Pulsante flottante (basso-destra) ---- */
   #cc-rewrite-btn {
     all: unset !important;
     position: fixed !important;
@@ -335,10 +321,10 @@ function cc_render_head() {
     right: 20px !important;
     left: auto !important;
     z-index: 9999999 !important;
-    width: 44px !important;
-    height: 44px !important;
+    width: 42px !important;
+    height: 42px !important;
     border-radius: 50% !important;
-    background-color: #1e293b !important;
+    background-color: var(--nv-primary-accent, #111111) !important;
     cursor: pointer !important;
     display: flex !important;
     align-items: center !important;
@@ -348,21 +334,21 @@ function cc_render_head() {
     border: none !important;
     box-sizing: border-box !important;
     transition: transform 0.2s ease, background-color 0.2s ease !important;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15) !important;
   }
   #cc-rewrite-btn:hover {
-    background-color: #0f172a !important;
+    background-color: var(--nv-secondary-accent, #000000) !important;
     transform: scale(1.08) !important;
   }
   #cc-rewrite-btn:active { border: none !important; }
   #cc-rewrite-btn:focus { outline: none !important; }
   #cc-rewrite-btn:focus-visible {
-    outline: 3px solid #2563eb !important;
+    outline: 3px solid var(--nv-primary-accent, #0366d6) !important;
     outline-offset: 3px !important;
   }
   #cc-rewrite-btn svg {
-    width: 22px !important;
-    height: 22px !important;
+    width: 20px !important;
+    height: 20px !important;
     fill: none !important;
     stroke: #ffffff !important;
     stroke-width: 2px !important;
@@ -383,24 +369,26 @@ document.addEventListener('DOMContentLoaded', function () {
 
     var domainRoot = '.' + window.location.hostname.replace(/^www\./, '');
 
+    // --- Google Consent Mode v2: aggiorna i segnali in base alle scelte ---
     function pushConsentConsentMode() {
         if (typeof gtag !== 'function') return;
         var analytics = CookieConsent.acceptedCategory('analytics');
         var marketing = CookieConsent.acceptedCategory('marketing');
         gtag('consent', 'update', {
-            'analytics_storage':   analytics ? 'granted' : 'denied',
-            'ad_storage':          marketing ? 'granted' : 'denied',
-            'ad_user_data':        marketing ? 'granted' : 'denied',
+            'analytics_storage':  analytics ? 'granted' : 'denied',
+            'ad_storage':         marketing ? 'granted' : 'denied',
+            'ad_user_data':       marketing ? 'granted' : 'denied',
             'ad_personalization': marketing ? 'granted' : 'denied'
         });
     }
 
-    CookieConsent.run({
+    CookieConsent.run({		
+		
         autoClearCookies: true,
         manageScriptTags: true,
 
-        onConsent: pushConsentConsentMode,
-        onChange:  pushConsentConsentMode,
+        onConsent: pushConsentConsentMode, // al caricamento (consenso già espresso)
+        onChange:  pushConsentConsentMode, // a ogni modifica delle preferenze
 
         categories: {
             necessary: { enabled: true, readOnly: true },
@@ -455,8 +443,8 @@ document.addEventListener('DOMContentLoaded', function () {
                         closeIconLabel: 'Chiudi',
                         serviceCounterLabel: 'Servizi',
                         sections: [
-                            { title: 'Strettamente Necessari', description: 'Cookie tecnici indispensabili per il funzionamento del sito.', linkedCategory: 'necessary' },
-                            { title: 'Statistiche e Analisi', description: 'Cookie per comprendere l'utilizzo del sito in forma aggregata.', linkedCategory: 'analytics' },
+                            { title: 'Strettamente Necessari', description: 'Cookie tecnici indispensabili per il funzionamento del sito e dell\'e-commerce.', linkedCategory: 'necessary' },
+                            { title: 'Statistiche e Analisi', description: 'Cookie per comprendere l\'utilizzo del sito in forma aggregata.', linkedCategory: 'analytics' },
                             { title: 'Marketing e Profilazione', description: 'Cookie per la personalizzazione dei contenuti pubblicitari.', linkedCategory: 'marketing' }
                         ]
                     }
@@ -487,130 +475,5 @@ function cc_render_footer_button() {
     <circle cx="15" cy="11" r="1" />
   </svg>
 </button>
-    <?php
-}
-
-/* ==========================================================================
-   7. DEBUGGER (PANNELLO ADMIN ATTIVATO)
-   ========================================================================== */
-add_action('wp_footer', 'cc_render_debug_panel', 999);
-function cc_render_debug_panel() {
-    if (!cc_debug_enabled()) {
-        return;
-    }
-
-    global $cc_debug_log;
-    $log     = is_array($cc_debug_log) ? $cc_debug_log : [];
-    $blocked = 0;
-    $cmode   = 0;
-    foreach ($log as $row) {
-        if (($row['action'] ?? '') === 'blocked')      $blocked++;
-        if (($row['action'] ?? '') === 'consent-mode') $cmode++;
-    }
-    ?>
-<div id="cc-debug" data-cc-skip>
-  <div id="cc-debug-panel" data-cc-skip hidden>
-    <div id="cc-debug-summary" data-cc-skip></div>
-    <div id="cc-debug-table" data-cc-skip></div>
-  </div>
-  <button type="button" id="cc-debug-toggle" data-cc-skip>
-    🐞 CC Debug
-    <span class="cc-badge cc-badge-blocked"><?php echo (int) $blocked; ?></span>
-    <span class="cc-badge cc-badge-cmode"><?php echo (int) $cmode; ?></span>
-  </button>
-</div>
-<style>
-  #cc-debug{position:fixed;bottom:20px;left:20px;z-index:2147483000;font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:#e5e7eb}
-  #cc-debug-toggle{all:unset;cursor:pointer;background:#111827;color:#e5e7eb;padding:6px 10px;border-radius:6px;box-shadow:0 4px 10px rgba(0,0,0,.3);display:inline-flex;align-items:center;gap:6px}
-  #cc-debug-toggle:hover{background:#1f2937}
-  .cc-badge{border-radius:10px;padding:0 6px;font-size:11px;font-weight:700}
-  .cc-badge-blocked{background:#dc2626;color:#fff}
-  .cc-badge-cmode{background:#d97706;color:#fff}
-  #cc-debug-panel{margin-bottom:8px;background:#0b1220;border:1px solid #334155;border-radius:8px;padding:10px;width:min(92vw,660px);max-height:60vh;overflow:auto;box-shadow:0 10px 30px rgba(0,0,0,.45)}
-  #cc-debug-panel table{border-collapse:collapse;width:100%;margin-top:8px}
-  #cc-debug-panel th,#cc-debug-panel td{text-align:left;padding:3px 6px;border-bottom:1px solid #1f2937;vertical-align:top;word-break:break-word}
-  #cc-debug-panel th{color:#93c5fd;font-weight:600;position:sticky;top:0;background:#0b1220}
-  #cc-debug .ok{color:#34d399}#cc-debug .bad{color:#f87171}#cc-debug .warn{color:#fbbf24}#cc-debug .muted{color:#9ca3af}
-  #cc-debug-summary div{margin:2px 0}
-</style>
-<script data-cc-skip>
-(function () {
-  var LOG          = <?php echo wp_json_encode($log); ?>;
-  var CONSENT_MODE = <?php echo CC_CONSENT_MODE ? 'true' : 'false'; ?>;
-  var CM_REGIONS   = <?php echo wp_json_encode(array_values(CC_CM_REGIONS)); ?>;
-
-  var panel   = document.getElementById('cc-debug-panel');
-  var toggle  = document.getElementById('cc-debug-toggle');
-  var summary = document.getElementById('cc-debug-summary');
-  var table   = document.getElementById('cc-debug-table');
-  var timer   = null;
-
-  function esc(s) {
-    return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
-      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
-    });
-  }
-  function tag(v) { return '<span class="' + v + '">'; }
-
-  function consentState() {
-    if (typeof CookieConsent === 'undefined') return null;
-    try {
-      return {
-        analytics: CookieConsent.acceptedCategory('analytics'),
-        marketing: CookieConsent.acceptedCategory('marketing')
-      };
-    } catch (e) { return null; }
-  }
-
-  function renderSummary() {
-    var st = consentState();
-    var html = '';
-    html += '<div><b>Consent Mode v2:</b> ' + (CONSENT_MODE ? tag('ok') + 'ON' : tag('warn') + 'OFF') + '</span>'
-          + (CM_REGIONS.length ? ' (region: ' + esc(CM_REGIONS.join(', ')) + ')' : ' (globale)') + '</div>';
-    html += '<div><b>gtag():</b> ' + (typeof gtag === 'function' ? tag('ok') + 'definito' : tag('warn') + 'assente') + '</span></div>';
-    html += '<div><b>CookieConsent:</b> ' + (typeof CookieConsent !== 'undefined' ? tag('ok') + 'caricato' : tag('bad') + 'NON caricato') + '</span></div>';
-    if (st) {
-      html += '<div><b>analytics_storage:</b> ' + (st.analytics ? tag('ok') + 'granted' : tag('bad') + 'denied') + '</span></div>';
-      html += '<div><b>ad_storage / ad_user_data / ad_personalization:</b> ' + (st.marketing ? tag('ok') + 'granted' : tag('bad') + 'denied') + '</span></div>';
-    } else {
-      html += '<div class="muted">Stato consenso non disponibile (libreria assente).</div>';
-    }
-    summary.innerHTML = html;
-  }
-
-  function renderTable() {
-    if (!LOG.length) { table.innerHTML = '<em class="muted">Nessuno script rilevato.</em>'; return; }
-    var html = '<table><thead><tr>'
-      + '<th>Origine</th><th>Handle / File</th><th>Categoria</th><th>Servizio</th><th>Azione</th>'
-      + '</tr></thead><tbody>';
-    LOG.forEach(function (r) {
-      var cls = r.action === 'blocked' ? 'bad'
-              : r.action === 'consent-mode' ? 'warn'
-              : 'muted';
-      html += '<tr>'
-        + '<td class="muted">' + esc(r.source) + '</td>'
-        + '<td title="' + esc(r.src) + '">' + esc(r.label || r.src) + '</td>'
-        + '<td>' + esc(r.cat) + '</td>'
-        + '<td>' + esc(r.service) + '</td>'
-        + '<td class="' + cls + '">' + esc(r.action) + '</td>'
-        + '</tr>';
-    });
-    table.innerHTML = html + '</tbody></table>';
-  }
-
-  function render() { renderSummary(); renderTable(); }
-
-  toggle.addEventListener('click', function () {
-    if (panel.hasAttribute('hidden')) {
-      panel.removeAttribute('hidden');
-      render();
-      timer = setInterval(render, 1000);
-    } else {
-      panel.setAttribute('hidden', '');
-      if (timer) { clearInterval(timer); timer = null; }
-    }
-  });
-})();
-</script>
     <?php
 }
