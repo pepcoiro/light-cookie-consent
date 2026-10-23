@@ -1,46 +1,62 @@
-# 🍪 WordPress Zero-Plugin Cookie Consent & Script Blocker
+# LightweightCookieConsent
 
-Un'soluzione ultraleggera e pronta all'uso per gestire il consenso cookie e il blocco preventivo degli script (GDPR/CCPA compliant) su WordPress, **senza installare plugin pesanti**.
+Soluzione leggera per gestire il consenso ai cookie su WordPress, basata su [CookieConsent v3](https://github.com/orestbida/cookieconsent). Il progetto usa un file PHP per mostrare il banner, raccogliere le preferenze e applicare regole di blocco preventivo ad alcuni script di terze parti.
 
-Basato sulla potente libreria open source [CookieConsent v3](https://github.com/orestbida/cookieconsent).
+## Funzionalità
 
----
+- Banner e pannello preferenze in italiano: accetta tutti, rifiuta i cookie non necessari o personalizza le scelte.
+- Tre categorie: **Necessari**, **Statistiche e analisi**, **Marketing e profilazione**.
+- Rilevamento euristico di alcuni script esterni caricati tramite WordPress e di alcuni script inline presenti nell'HTML.
+- Integrazione con **Google Consent Mode v2**: segnali Google predefiniti su `denied` e aggiornamento dei segnali in base alle preferenze. Con Consent Mode attivo, gli snippet inline riconosciuti come composti esclusivamente da servizi Google non vengono bloccati da questo meccanismo.
+- Cancellazione automatica di una lista di cookie noti quando viene negato o revocato il consenso alla categoria corrispondente.
+- Pulsante flottante per riaprire le preferenze.
+- Caricamento di CookieConsent da file locali, se disponibili, con fallback alla CDN jsDelivr.
 
-## ✨ Caratteristiche
+## Limiti
 
-- 🚀 **Zero Plugin:** Inserisci un singolo file o uno snippet di codice PHP nel tuo tema.
-- 🛡️ **Blocco Preventivo Automatico:** Intercetta e blocca automaticamente gli script di terze parti (Google Analytics, Facebook Pixel, Clarity, ecc.) prima che l'utente dia il consenso.
-- 🎨 **100% Personalizzabile:** CSS basato su variabili facilmente adattabili ai colori del tuo tema.
-- 🍪 **Floating Re-open Button:** Pulsante fluttuante minimale (icona biscotto SVG) in basso a destra per permettere agli utenti di modificare le preferenze in qualsiasi momento.
-- 🧹 **Auto-Cleaning Cookie:** Cancella automaticamente i cookie salvati (es. `_ga`, `_fbp`) se l'utente revoca il consenso.
+Il riconoscimento degli script si basa su hostname, URL e indicatori noti nel codice: **non rileva automaticamente ogni possibile tracker**. Codice personalizzato, iframe, pixel, caricamenti indiretti, script aggiunti dopo il buffering o strumenti non inclusi nelle regole possono sfuggire al rilevamento.
 
----
+Il blocco riguarda gli script riconosciuti nel filtro degli script WordPress o nell'HTML intercettato dal buffering. Non garantisce, da solo, che nessuna richiesta di tracciamento venga inviata prima del consenso. Cache, minificazione, ordine di caricamento e integrazioni di terze parti possono cambiare il comportamento e vanno testati sul sito reale.
 
-## 🛠️ Installazione
+La cancellazione dei cookie è limitata ai cookie eliminabili dal browser nel contesto del sito, con dominio e percorso corretti. JavaScript non può cancellare cookie appartenenti a domini estranei. Per condividere la cancellazione tra sottodomini si può configurare `CC_COOKIE_DOMAIN` con il dominio principale appropriato.
 
-Puoi utilizzare questo codice in due modi differenti:
+Questo progetto è uno strumento tecnico: **non garantisce da solo la conformità al GDPR o ad altre normative**. È necessario verificare i servizi realmente usati dal sito, le finalità del trattamento, l'informativa e il comportamento effettivo delle richieste di rete.
 
-### Opzione A: Tramite Code Snippets (Consigliata)
-1. Installa e attiva un plugin per snippet di codice (es. *Code Snippets* o *WPCode*).
-2. Crea un nuovo snippet **PHP**.
-3. Incolla il codice contenuto nel file `wp-cookie-consent.php`.
-4. Imposta l'esecuzione su **"Esegui ovunque" (Run Everywhere)** e salva.
+## Installazione
 
-### Opzione B: Tramite file `functions.php`
-1. Apri il file `functions.php` del tuo Tema Child.
-2. Incolla il codice in fondo al file.
+Il file principale è [`CookieConsent.php`](CookieConsent.php).
 
----
+1. Fai una copia di sicurezza del sito.
+2. Inserisci il contenuto del file in uno snippet PHP eseguito sul frontend oppure integralo nel `functions.php` del tema child.
+3. Assicurati che il codice venga eseguito una sola volta.
+4. Verifica il banner e il pannello preferenze in una finestra anonima; controlla inoltre le richieste di rete prima del consenso, dopo l'accettazione e dopo la revoca.
 
-## 🎨 Personalizzazione
+Il buffering HTML esclude l'area amministrativa WordPress e alcune richieste non frontend. Se usi plugin di cache, minificazione o ottimizzazione, verifica anche la compatibilità con questi strumenti.
 
-### 1. Colori e Stile
-All'interno del blocco `<style>`, puoi modificare i valori delle variabili CSS `:root` per adattare il banner ai colori del tuo brand:
+## Configurazione
 
-```css
-:root {
-  --cc-custom-bg: #ffffff;           /* Sfondo modale */
-  --cc-custom-text-primary: #222222; /* Testo principale */
-  --cc-custom-accent: #0073aa;       /* Colore primario del brand */
-  --cc-custom-accent-hover: #005177; /* Colore stato hover */
-}
+Le costanti sono definite all'inizio di `CookieConsent.php`:
+
+- `CC_VERSION`: versione di CookieConsent v3 per gli asset CDN (attualmente `3.1.0`).
+- `CC_CONSENT_MODE`: abilita o disabilita Google Consent Mode v2; è attiva per impostazione predefinita.
+- `CC_CM_REGIONS`: codici regione per il segnale di consenso predefinito; un array vuoto applica il default a tutte le regioni.
+- `CC_SRI_CSS` e `CC_SRI_JS`: valori opzionali di Subresource Integrity per gli asset CDN.
+- `CC_COOKIE_DOMAIN`: dominio opzionale per la cancellazione dei cookie condivisi, per esempio `.example.com`. Configuralo solo se conosci il dominio corretto.
+
+Gli asset vengono cercati prima in `cookieconsent/` nel tema child e poi nel tema parent; se non vengono trovati, si usa jsDelivr.
+
+## Manutenzione e verifiche
+
+Quando aggiungi un servizio, aggiorna le regole di rilevamento, la categoria, la configurazione del servizio e gli eventuali cookie da cancellare. Dopo ogni modifica controlla almeno:
+
+- rifiuto iniziale dei cookie non necessari;
+- accettazione e revoca del consenso;
+- script Google, non Google e snippet inline misti;
+- comportamento con cache/minificazione attive;
+- cookie sul dominio principale e sugli eventuali sottodomini.
+
+## Tecnologie
+
+- WordPress / PHP
+- [CookieConsent v3](https://github.com/orestbida/cookieconsent)
+- Google Consent Mode v2
