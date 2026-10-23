@@ -206,7 +206,7 @@ function nvcc_consent_mode_default() {
       var marketing = levels.indexOf('marketing') !== -1;
       gtag('consent', 'update', {
         'analytics_storage': analytics ? 'granted' : 'denied',
-        'personalization_storage': analytics ? 'granted' : 'denied',
+        'personalization_storage': marketing ? 'granted' : 'denied',
         'ad_storage': marketing ? 'granted' : 'denied',
         'ad_user_data': marketing ? 'granted' : 'denied',
         'ad_personalization': marketing ? 'granted' : 'denied'
@@ -434,6 +434,7 @@ document.addEventListener('DOMContentLoaded', function () {
         var marketing = CookieConsent.acceptedCategory('marketing');
         gtag('consent', 'update', {
             'analytics_storage':  analytics ? 'granted' : 'denied',
+            'personalization_storage': marketing ? 'granted' : 'denied',
             'ad_storage':         marketing ? 'granted' : 'denied',
             'ad_user_data':       marketing ? 'granted' : 'denied',
             'ad_personalization': marketing ? 'granted' : 'denied'
